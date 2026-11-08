@@ -4774,6 +4774,93 @@ func TestValidateUpdate(t *testing.T) {
 			enableElasticJobSet: true,
 		},
 		{
+			name: "invalid scaling of parallelism makes replicas * parallelism exceed MaxInt32",
+			oldJs: &jobset.JobSet{
+				ObjectMeta: validObjectMeta,
+				Spec: jobset.JobSetSpec{
+					ReplicatedJobs: []jobset.ReplicatedJob{
+						{
+							Name:     "test-jobset-replicated-job-0",
+							Replicas: 30000,
+							Template: batchv1.JobTemplateSpec{
+								Spec: batchv1.JobSpec{
+									CompletionMode: ptr.To(batchv1.IndexedCompletion),
+									Parallelism:    ptr.To[int32](2),
+									Completions:    ptr.To[int32](2),
+								},
+							},
+						},
+					},
+				},
+			},
+			js: &jobset.JobSet{
+				ObjectMeta: validObjectMeta,
+				Spec: jobset.JobSetSpec{
+					ReplicatedJobs: []jobset.ReplicatedJob{
+						{
+							Name:     "test-jobset-replicated-job-0",
+							Replicas: 30000,
+							Template: batchv1.JobTemplateSpec{
+								Spec: batchv1.JobSpec{
+									CompletionMode: ptr.To(batchv1.IndexedCompletion),
+									Parallelism:    ptr.To[int32](100000),
+									Completions:    ptr.To[int32](100000),
+								},
+							},
+						},
+					},
+				},
+			},
+			want: field.ErrorList{
+				field.Invalid(field.NewPath("spec", "replicatedJobs").Index(0).Child("template", "spec", "parallelism"), int32(100000), fmt.Sprintf("the product of replicas and parallelism must not exceed %d for replicatedJob 'test-jobset-replicated-job-0'", math.MaxInt32)),
+			}.ToAggregate(),
+			enableElasticJobSet: true,
+		},
+		{
+			name: "invalid scaling of completions makes generated pod names too long",
+			// js-<50 chars>-1-9-abcde is 63 characters, js-<50 chars>-1-99-abcde is 64.
+			oldJs: &jobset.JobSet{
+				ObjectMeta: validObjectMeta,
+				Spec: jobset.JobSetSpec{
+					ReplicatedJobs: []jobset.ReplicatedJob{
+						{
+							Name:     strings.Repeat("r", 50),
+							Replicas: 2,
+							Template: batchv1.JobTemplateSpec{
+								Spec: batchv1.JobSpec{
+									CompletionMode: ptr.To(batchv1.IndexedCompletion),
+									Parallelism:    ptr.To[int32](10),
+									Completions:    ptr.To[int32](10),
+								},
+							},
+						},
+					},
+				},
+			},
+			js: &jobset.JobSet{
+				ObjectMeta: validObjectMeta,
+				Spec: jobset.JobSetSpec{
+					ReplicatedJobs: []jobset.ReplicatedJob{
+						{
+							Name:     strings.Repeat("r", 50),
+							Replicas: 2,
+							Template: batchv1.JobTemplateSpec{
+								Spec: batchv1.JobSpec{
+									CompletionMode: ptr.To(batchv1.IndexedCompletion),
+									Parallelism:    ptr.To[int32](100),
+									Completions:    ptr.To[int32](100),
+								},
+							},
+						},
+					},
+				},
+			},
+			want: field.ErrorList{
+				field.Invalid(field.NewPath("spec", "replicatedJobs").Index(0).Child("template", "spec", "completions"), int32(100), podNameTooLongErrorMsg),
+			}.ToAggregate(),
+			enableElasticJobSet: true,
+		},
+		{
 			name: "invalid scaling of parallelism to < 1",
 			oldJs: &jobset.JobSet{
 				ObjectMeta: validObjectMeta,

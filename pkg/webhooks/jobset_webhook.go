@@ -398,6 +398,20 @@ func (j *jobSetWebhook) ValidateUpdate(ctx context.Context, oldJs, newJs *jobset
 						if newRJob.Template.Spec.Parallelism != nil && newRJob.Template.Spec.Completions != nil && *newRJob.Template.Spec.Parallelism != *newRJob.Template.Spec.Completions {
 							errs = append(errs, field.Invalid(rJobPath.Child("completions"), *newRJob.Template.Spec.Completions, "completions must be equal to parallelism for Elastic Indexed Jobs"))
 						}
+						// Re-check the limits ValidateCreate enforces on these fields, since
+						// scaling up can break them for an already admitted JobSet.
+						if parallelismChanged && newRJob.Template.Spec.Parallelism != nil &&
+							int64(*newRJob.Template.Spec.Parallelism)*int64(newRJob.Replicas) > math.MaxInt32 {
+							errs = append(errs, field.Invalid(rJobPath.Child("parallelism"), *newRJob.Template.Spec.Parallelism, fmt.Sprintf("the product of replicas and parallelism must not exceed %d for replicatedJob '%s'", math.MaxInt32, newRJob.Name)))
+						}
+						if completionsChanged && newRJob.Template.Spec.Completions != nil && *newRJob.Template.Spec.Completions >= 1 {
+							maxJobIndex := strconv.Itoa(int(newRJob.Replicas - 1))
+							maxPodIndex := strconv.Itoa(int(*newRJob.Template.Spec.Completions - 1))
+							longestPodName := placement.GenPodName(newJs.Name, newRJob.Name, maxJobIndex, maxPodIndex) + "-abcde"
+							if len(validation.IsDNS1035Label(longestPodName)) > 0 {
+								errs = append(errs, field.Invalid(rJobPath.Child("completions"), *newRJob.Template.Spec.Completions, podNameTooLongErrorMsg))
+							}
+						}
 					}
 				}
 
